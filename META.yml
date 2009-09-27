@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:                Finance-Bank-US-INGDirect
-version:             0.02
+version:             0.03
 abstract:            Check balances and transactions for US INGDirect accounts
 license:             perl
 author:              
@@ -8,6 +8,9 @@ author:
 generated_by:        ExtUtils::MakeMaker version 6.42
 distribution_type:   module
 requires:     
+    Date::Parse:                   0
+    HTTP::Cookies:                 0
+    LWP::UserAgent:                0
     Test::More:                    0
 meta-spec:
     url:     http://module-build.sourceforge.net/META-spec-v1.3.html
