@@ -17,11 +17,11 @@ Finance::Bank::US::INGDirect - Check balances and transactions for US INGDirect 
 
 =head1 VERSION
 
-Version 0.04
+Version 0.05
 
 =cut
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
 =head1 SYNOPSIS
 
@@ -111,11 +111,10 @@ sub _login {
     $response = $self->{ua}->get("$base/INGDirect/login_pinpad.vm");
     $response->is_success or croak "Loading PIN form failed.";
 
-    my @keypad = map { s/^.*mouseUpKb\('([A-Z])'.*$/$1/; $_ }
-        grep /onMouseUp="return mouseUpKb/,
+    my @keypad = map { s/^.*mouseUpKb\("([A-Z])".*$/$1/; $_ }
+        grep /pinKeyboard[A-Z]number/,
         split('\n', $response->content);
 
-    @keypad = map { shift @keypad; shift @keypad || () } @keypad;
     unshift(@keypad, pop @keypad);
 
     $response = $self->{ua}->post("$base/INGDirect/login_pinpad.vm", [

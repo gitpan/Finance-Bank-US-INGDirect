@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:                Finance-Bank-US-INGDirect
-version:             0.04
+version:             0.05
 abstract:            Check balances and transactions for US INGDirect accounts
 license:             perl
 author:              
