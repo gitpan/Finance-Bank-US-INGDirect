@@ -5,7 +5,7 @@ use strict;
 use Carp 'croak';
 use LWP::UserAgent;
 use HTTP::Cookies;
-use HTML::Strip;
+use HTML::TableExtract;
 use Date::Parse;
 use Data::Dumper;
 
@@ -17,11 +17,11 @@ Finance::Bank::US::INGDirect - Check balances and transactions for US INGDirect 
 
 =head1 VERSION
 
-Version 0.05
+Version 0.07
 
 =cut
 
-our $VERSION = '0.05';
+our $VERSION = '0.07';
 
 =head1 SYNOPSIS
 
@@ -90,7 +90,8 @@ sub _login {
     $response = $self->{ua}->post("$base/INGDirect/login.vm", [
         publicUserId => $self->{saver_id},
     ]);
-    $response->is_redirect or croak "Initial login failed.";
+    $response->is_redirect && $response->header('location') =~ /security_questions.vm/
+        or croak "Initial login failed.";
 
     $response = $self->{ua}->get("$base/INGDirect/security_questions.vm");
     $response->is_success or croak "Retrieving challenge questions failed.";
@@ -106,7 +107,8 @@ sub _login {
         'customerAuthenticationResponse.questionAnswer[1].answerText' => $self->{questions}{$questions[1]},
         '_customerAuthenticationResponse.device[0].bind' => 'false',
     ]);
-    $response->is_redirect or croak "Submitting challenge responses failed.";
+    $response->is_redirect && $response->header('location') =~ /login_pinpad.vm/
+        or croak "Submitting challenge responses failed.";
 
     $response = $self->{ua}->get("$base/INGDirect/login_pinpad.vm");
     $response->is_success or croak "Loading PIN form failed.";
@@ -120,10 +122,18 @@ sub _login {
     $response = $self->{ua}->post("$base/INGDirect/login_pinpad.vm", [
         'customerAuthenticationResponse.PIN' => join '', map { $keypad[$_] } split//, $self->{pin},
     ]);
-    $response->is_redirect or croak "Submitting PIN failed.";
+    $response->is_redirect && $response->header('location') =~ /postlogin/
+        or croak "Submitting PIN failed.";
 
-    $response = $self->{ua}->get("$base/INGDirect.html?command=viewAccountPostLogin");
-    $response->is_success or croak "Final login failed.";
+    $response = $self->{ua}->get("$base/INGDirect/postlogin");
+    # XXX This is how it behaves in my browser, but not with
+    # LWP::UserAgent, so we can apparently just skip this step...
+    #$response->is_redirect && $response->header('location') =~ /account_summary.vm/
+    #    or croak "Post login redirect failed.";
+
+    #$response = $self->{ua}->get("$base/INGDirect/account_summary.vm");
+    # XXX ...and the postlogin screen has the account summary.
+    $response->is_success or croak "Account summary fetch failed.";
     $self->{_account_screen} = $response->content;
 }
 
@@ -143,17 +153,30 @@ Retrieve a list of accounts:
 sub accounts {
     my ($self) = @_;
 
-    my $hs = HTML::Strip->new;
-    my @lines = grep /command=goToAccount/, split(/[\n\r]/, $self->{_account_screen});
-    @lines = map { tr/\xa0/ /; $_ } split(/\n/, $hs->parse(join "\n", @lines));
+    my $te = HTML::TableExtract->new( 
+        attribs => { cellpadding => 0, cellspacing => 0 } 
+    );
+    my $account_screen = $self->{_account_screen};
+    $account_screen =~ s/&nbsp;/ /g; # &nbsp; makes TableExtract unhappy
+    $te->parse($account_screen);
 
     my %accounts;
-    for (@lines) {
-        my @data = splice(@lines, 0, 3);
+    my $seen_header = 0;
+
+    $te->tables or croak "Can't extract accounts table.";
+
+    foreach my $row (($te->tables)[0]->rows) {
+        next unless $seen_header++;
+        foreach (@$row) {
+            s/^\s*//;  s/\s*$//; s/\n/ /g;
+        }
         my %account;
-        ($account{type} = $data[0]) =~ s/^\s*(.*?)\s*$/$1/;
-        ($account{nickname}, $account{number}, $account{balance}) = split /\s/, $data[1];
-        ($account{available} = $data[2]) =~ s/^\s*(.*?)\s*$/$1/;
+        ($account{type},
+         $account{nickname},
+         $account{number},
+         $account{balance},
+         $account{available}) = @$row;
+        next unless $account{type}; # don't include total row
         $accounts{$account{number}} = \%account;
     }
 
@@ -287,10 +310,11 @@ sub transfer {
 =head1 AUTHOR
 
 This version by Steven N. Severinghaus <sns-perl@severinghaus.org>
+with contributions by Robert Spier.
 
 =head1 COPYRIGHT
 
-Copyright (c) 2009 Steven N. Severinghaus. All rights reserved. This
+Copyright (c) 2011 Steven N. Severinghaus. All rights reserved. This
 program is free software; you can redistribute it and/or modify it under
 the same terms as Perl itself.
 
